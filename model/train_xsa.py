@@ -33,31 +33,20 @@ def get_output(outputs, seq_len):
 
 def main():
     parser = argparse.ArgumentParser(description='paras for making data')
-    parser.add_argument('--dim', type=int, help='dim of input features',
-                        default=1024)
-    parser.add_argument('--middim', type=int, help='dim of input of the feat after dim reduction',
-                        default=256)
-    parser.add_argument('--featdim', type=int, help='dim of input of attention blocks',
-                        default=64)
-    parser.add_argument('--head', type=int, help='num of attention heads',
-                        default=8)
-    parser.add_argument('--model', type=str, help='model name',
-                        default='AE_XSA')
+    parser.add_argument('--dim', type=int, help='dim of input features',  default=1024)
+    parser.add_argument('--middim', type=int, help='dim of the feat after dim reduction', default=256)
+    parser.add_argument('--featdim', type=int, help='dim of input of attention blocks', default=64)
+    parser.add_argument('--head', type=int, help='num of attention heads', default=8)
+    parser.add_argument('--model', type=str, help='model name',  default='AE_XSA')
+    parser.add_argument('--kaldi', type=str, help='kaldi root')
     parser.add_argument('--train', type=str, help='training data, in .txt')
-    parser.add_argument('--batch', type=int, help='batch size',
-                        default=64)
-    parser.add_argument('--warmup', type=int, help='num of epochs',
-                        default=11000)
-    parser.add_argument('--epochs', type=int, help='num of epochs',
-                        default=20)
-    parser.add_argument('--lang', type=int, help='num of language classes',
-                        default=10)
-    parser.add_argument('--lr', type=float, help='initial learning rate',
-                        default=0.0001)
-    parser.add_argument('--device', type=int, help='Device name',
-                        default=0)
-    parser.add_argument('--seed', type=int, help='Device name',
-                        default=0)
+    parser.add_argument('--batch', type=int, help='batch size', default=128)
+    parser.add_argument('--warmup', type=int, help='num of epochs', default=2766)
+    parser.add_argument('--epochs', type=int, help='num of epochs', default=10)
+    parser.add_argument('--lang', type=int, help='num of language classes', default=10)
+    parser.add_argument('--lr', type=float, help='initial learning rate', default=0.0001)
+    parser.add_argument('--device', type=int, help='Device name', default=0)
+    parser.add_argument('--seed', type=int, help='seed, for XSA setting seed slow the training', default=0)
     args = parser.parse_args()
 
     setup_seed(args.seed)
@@ -130,7 +119,7 @@ def main():
             # print(get_lr(optimizer))
 
         if epoch >= args.epochs - 10:
-            torch.save(model.state_dict(), '/home/hexin/Desktop/models/' + '{}_epoch_{}.ckpt'.format(args.model, epoch))
+            torch.save(model.state_dict(), '{}_epoch_{}.ckpt'.format(args.model, epoch))
             model.eval()
             correct = 0
             total = 0
@@ -161,7 +150,7 @@ def main():
             scoring.get_trials(valid_txt, args.lang, trial_txt)
             scoring.get_score(valid_txt, scores, args.lang, score_txt)
             eer_txt = trial_txt.replace('trial', 'eer')
-            subprocess.call(f"/home/hexin/Desktop/kaldi/egs/subtools/computeEER.sh "
+            subprocess.call(f"{args.kaldi}/egs/subtools/computeEER.sh "
                             f"--write-file {eer_txt} {trial_txt} {score_txt}", shell=True)
             cavg = scoring.compute_cavg(trial_txt, score_txt)
             print("Cavg:{}".format(cavg))
