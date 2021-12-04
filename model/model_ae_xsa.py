@@ -4,7 +4,7 @@ import torch.nn.utils.rnn as rnn_utils
 
 class AE_XSA(nn.Module):
     def __init__(self, input_dim=1024, middim=256, feat_dim=64,
-                 d_k=64, d_v=64, d_ff=64, n_heads=4,
+                 d_k=64, d_v=64, d_ff=2048, n_heads=4,
                  dropout=0.1, n_lang=3, max_seq_len=10000):
         super(AE_XSA, self).__init__()
         self.input_dim = input_dim
