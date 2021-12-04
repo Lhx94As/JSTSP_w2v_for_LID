@@ -1,5 +1,4 @@
 import torch
-
 from model_nn_dim_reduction import *
 from data_load import *
 import scoring
@@ -58,21 +57,34 @@ def main():
                         default=0)
     parser.add_argument('--seed', type=int, help='Device name',
                         default=0)
+    parser.add_argument('--modeltype', type=str, help='conv or linear', default='linear')
     args = parser.parse_args()
 
     setup_seed(args.seed)
     device = torch.device('cuda:{}'.format(args.device) if torch.cuda.is_available() else 'cpu')
 
-    model = LDA_XSA(input_dim=args.dim,
-                    middim=args.middim,
-                    feat_dim=args.featdim,
-                    d_k=args.featdim,
-                    d_v=args.featdim,
-                    d_ff=2048,
-                    n_heads=args.head,
-                    dropout=0.1,
-                    n_lang=args.lang,
-                    max_seq_len=10000)
+    if args.modeltype == 'linear':
+        model = LDA_XSA(input_dim=args.dim,
+                        middim=args.middim,
+                        feat_dim=args.featdim,
+                        d_k=args.featdim,
+                        d_v=args.featdim,
+                        d_ff=2048,
+                        n_heads=args.head,
+                        dropout=0.1,
+                        n_lang=args.lang,
+                        max_seq_len=10000)
+    elif args.modeltype == 'conv':
+        model = LDA_XSA_conv(input_dim=args.dim,
+                             middim=args.middim,
+                             feat_dim=args.featdim,
+                             d_k=args.featdim,
+                             d_v=args.featdim,
+                             d_ff=2048,
+                             n_heads=args.head,
+                             dropout=0.1,
+                             n_lang=args.lang,
+                             max_seq_len=10000)
 
     model.to(device)
 
@@ -95,12 +107,18 @@ def main():
 
     loss_func_CRE = nn.CrossEntropyLoss().to(device)
     total_step = len(train_data)
-    ae_enc = list(map(id, model.encoder.parameters()))
-    ae_fc = list(map(id, model.encoder_fc.parameters()))
-    base_params = filter(lambda p: id(p) not in ae_enc + ae_fc, model.parameters())
-    optimizer = torch.optim.Adam([{'params': base_params},
-                                  {'params': model.encoder.parameters(), 'lr':args.lr*10},
-                                  {'params': model.encoder_fc.parameters(), 'lr':args.lr*10}], lr=args.lr)
+    if args.modeltype == 'linear':
+        ae_enc = list(map(id, model.encoder.parameters()))
+        base_params = filter(lambda p: id(p) not in ae_enc, model.parameters())
+        optimizer = torch.optim.Adam([{'params': base_params},
+                                      {'params': model.encoder.parameters(), 'lr': args.lr * 10}], lr=args.lr)
+    elif args.modeltype == 'conv':
+        ae_enc = list(map(id, model.encoder.parameters()))
+        ae_fc = list(map(id, model.encoder_fc.parameters()))
+        base_params = filter(lambda p: id(p) not in ae_enc + ae_fc, model.parameters())
+        optimizer = torch.optim.Adam([{'params': base_params},
+                                      {'params': model.encoder.parameters(), 'lr':args.lr*10},
+                                      {'params': model.encoder_fc.parameters(), 'lr':args.lr*10}], lr=args.lr)
 
     warm_up_with_cosine_lr = lambda step: step / args.warmup \
         if step <= args.warmup \
