@@ -4,8 +4,6 @@ import torch.nn.functional as F
 import torch.nn.utils.rnn as rnn_utils
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 from transformer import *
-import conformer as cf
-from convolution_module import Conv1dSubampling
 from pooling_layers import *
 
 
