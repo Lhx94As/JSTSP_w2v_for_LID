@@ -1,6 +1,6 @@
 import torch
 
-from model import *
+from model_se_xsa import *
 from data_load import *
 import scoring
 import subprocess
