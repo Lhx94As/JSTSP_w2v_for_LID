@@ -12,6 +12,31 @@ import s3prl.upstream.wav2vec2.hubconf as hubconf
 from sklearn.preprocessing import LabelEncoder
 
 
+def make_200ms_feat(mfccs, overlap=10, chunk_len=20):
+    new_feat = 0
+    feature = mfccs.T
+    seq_len = feature.shape[0]
+    step = chunk_len - overlap
+    num_chunk = (seq_len - overlap) // (chunk_len - overlap)
+    if num_chunk > 1:
+        start = 0
+        end = 0
+        for id in range(num_chunk):
+            end = start + chunk_len
+            feat_temp = feature[start:end, :]
+            feat_temp = np.hstack(feat_temp)
+            start += step
+            if id == 0:
+                new_feat = feat_temp
+            else:
+                new_feat = np.vstack((new_feat, feat_temp))
+        num_left = seq_len - end
+        start = end - (chunk_len - num_left)
+        feat_temp = feature[start:, :]
+        feat_temp = np.hstack(feat_temp)
+        new_feat = np.vstack((new_feat, feat_temp))
+    return new_feat
+
 def upsampling_lre(audio, save_dir):
     if audio.endswith('.sph'):
         data, sr = librosa.load(audio, sr=None)
