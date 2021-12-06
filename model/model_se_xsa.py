@@ -1,83 +1,175 @@
-from pooling_layers import *
-from transformer import *
-import torch.nn.utils.rnn as rnn_utils
+from model import *
+from data_load import *
+import scoring
+import subprocess
 
-class SE_XSA(nn.Module):
-    def __init__(self, input_dim, feat_dim,
-                 d_k, d_v, d_ff, n_heads=4,
-                 dropout=0.1, n_lang=3, max_seq_len=10000):
-        super(SE_XSA, self).__init__()
-        self.input_dim = input_dim
-        self.feat_dim = feat_dim
-        self.SElayer = SElayer_random(dim=self.input_dim)
-        self.SE_clf = nn.Sequential(nn.Linear(self.input_dim//16, 128),
-                                    nn.ReLU(),
-                                    nn.Linear(128, n_lang))
-        self.tdnn_layers = nn.Sequential(nn.Dropout(p=dropout),
-                                         nn.Conv1d(in_channels=self.input_dim, out_channels=512, kernel_size=5, dilation=1),
-                                         nn.ReLU(),
-                                         nn.BatchNorm1d(512, momentum=0.1, affine=False),
-                                         nn.Conv1d(in_channels=512, out_channels=512, kernel_size=5, dilation=2),
-                                         nn.ReLU(),
-                                         nn.BatchNorm1d(512, momentum=0.1, affine=False),
-                                         nn.Conv1d(in_channels=512, out_channels=512, kernel_size=1, dilation=1),
-                                         nn.ReLU(),
-                                         nn.BatchNorm1d(512, momentum=0.1, affine=False))
 
-        self.fc_xv = nn.Linear(1024, feat_dim)
+def setup_seed(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    torch.backends.cudnn.deterministic = False
+    torch.backends.cudnn.benchmark = False
 
-        self.layernorm1 = LayerNorm(feat_dim)
-        self.pos_encoding = PositionalEncoding(max_seq_len=max_seq_len, features_dim=feat_dim)
-        self.layernorm2 = LayerNorm(feat_dim)
-        self.d_model = feat_dim * n_heads
-        self.n_heads = n_heads
-        self.attention_block1 = EncoderBlock(self.d_model, d_k, d_v, d_ff, n_heads, dropout=dropout)
-        self.attention_block2 = EncoderBlock(self.d_model, d_k, d_v, d_ff, n_heads, dropout=dropout)
 
-        self.fc1 = nn.Linear(self.d_model * 2, self.d_model)
-        self.fc2 = nn.Linear(self.d_model, self.d_model)
-        self.fc3 = nn.Linear(self.d_model, n_lang)
+def get_lr(optimizer):
+    for param_group in optimizer.param_groups:
+        return param_group['lr']
 
-    def mean_std_pooling(self, x, batchsize, seq_lens, weight, mask_std, weight_unb):
-        max_len = seq_lens[0]
-        feat_dim = x.size(-1)
-        correct_mean = x.mean(dim=1).transpose(0, 1) * weight
-        correct_mean = correct_mean.transpose(0, 1)
-        center_seq = x - correct_mean.repeat(1, 1, max_len).view(batchsize, -1, feat_dim)
-        variance = torch.mean(torch.mul(torch.abs(center_seq) ** 2, mask_std), dim=1).transpose(0,
-                                                                                                1) * weight_unb * weight
-        std = torch.sqrt(variance.transpose(0, 1))
-        return torch.cat((correct_mean, std), dim=1)
 
-    def forward(self, x, seq_len, seq_weights, std_mask_, weight_unbaised, atten_mask=None, eps=1e-5):
-        batch_size = x.size(0)
-        T_len = x.size(1)
-        x = x.contiguous().view(batch_size, -1, self.input_dim)
-        x, se_, se_mid = self.SElayer(x, seq_weights) # x: (batchsize, frames, input_dim)
-        se_prediction = self.SE_clf(se_mid)
-        x = x.contiguous().view(batch_size*T_len, -1, self.input_dim).transpose(1,2)
-        x = self.tdnn_layers(x)
+def get_output(outputs, seq_len):
+    output_ = 0
+    for i in range(len(seq_len)):
+        length = seq_len[i]
+        output = outputs[i, :length, :]
+        if i == 0:
+            output_ = output
+        else:
+            output_ = torch.cat((output_, output), dim=0)
+    return output_
 
-        if self.training:
-            shape = x.size()
-            noise = torch.Tensor(shape)
-            noise = noise.type_as(x)
-            torch.randn(shape, out=noise)
-            x += noise * eps
 
-        stats = torch.cat((x.mean(dim=2), x.std(dim=2)), dim=1)
-        # print("pooling", stats.size())
-        embedding = self.fc_xv(stats)
-        embedding = embedding.view(batch_size, T_len, self.feat_dim)
-        output = self.layernorm1(embedding)
-        output = self.pos_encoding(output, seq_len)
-        output = self.layernorm2(output)
-        output = output.unsqueeze(1).repeat(1, self.n_heads, 1, 1)
-        output = output.transpose(1, 2).contiguous().view(batch_size, -1, self.d_model)
-        output, _ = self.attention_block1(output, atten_mask)
-        output, _ = self.attention_block2(output, atten_mask)
-        stats = self.mean_std_pooling(output, batch_size, seq_len, seq_weights, std_mask_, weight_unbaised)
-        output = F.relu(self.fc1(stats))
-        output = F.relu(self.fc2(output))
-        output = self.fc3(output)
-        return output, se_prediction, se_
+def main():
+    parser = argparse.ArgumentParser(description='paras for making data')
+    parser.add_argument('--dim', type=int, help='dim of input features',
+                        default=1024)
+    parser.add_argument('--middim', type=int, help='dim of input of the feat after dim reduction',
+                        default=256)
+    parser.add_argument('--featdim', type=int, help='dim of input of attention blocks',
+                        default=64)
+    parser.add_argument('--head', type=int, help='num of attention heads',
+                        default=8)
+    parser.add_argument('--model', type=str, help='model name',
+                        default='AE_XSA')
+    parser.add_argument('--train', type=str, help='training data, in .txt')
+    parser.add_argument('--batch', type=int, help='batch size',
+                        default=128)
+    parser.add_argument('--warmup', type=int, help='num of epochs',
+                        default=11000)
+    parser.add_argument('--epochs', type=int, help='num of epochs',
+                        default=20)
+    parser.add_argument('--lang', type=int, help='num of language classes',
+                        default=10)
+    parser.add_argument('--lr', type=float, help='initial learning rate',
+                        default=0.0001)
+    parser.add_argument('--device', type=int, help='Device name',
+                        default=0)
+    parser.add_argument('--seed', type=int, help='Device name',
+                        default=0)
+    parser.add_argument('--kaldi', type=str, help='kaldi root', default='/home/hexin/Desktop/kaldi')
+    args = parser.parse_args()
+
+    setup_seed(args.seed)
+    device = torch.device('cuda:{}'.format(args.device) if torch.cuda.is_available() else 'cpu')
+
+    model = SE_XSA(input_dim=args.dim,
+                   feat_dim=args.featdim,
+                   d_k=args.featdim,
+                   d_v=args.featdim,
+                   d_ff=2048,
+                   n_heads=args.head,
+                   dropout=0.1,
+                   n_lang=args.lang,
+                   max_seq_len=10000)
+
+    model.to(device)
+
+    train_txt = args.train
+    train_set = RawFeatures(train_txt)
+    valid_txt = '/home/hexin/Desktop/hexin/dataset/OLR2020/AP19-OLR_data/wav2vec2lang_16_test.txt'
+    valid_set = RawFeatures(valid_txt)
+    train_data = DataLoader(dataset=train_set,
+                            batch_size=args.batch,
+                            pin_memory=True,
+                            num_workers=8,
+                            shuffle=True,
+                            collate_fn=collate_fn_atten)
+    valid_data= DataLoader(dataset=valid_set,
+                           batch_size=1,
+                           pin_memory=True,
+                           shuffle=False,
+                           collate_fn=collate_fn_atten)
+
+    loss_func_CRE = nn.CrossEntropyLoss().to(device)
+    total_step = len(train_data)
+    # optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    se = list(map(id, model.SElayer.parameters()))
+    se_clf = list(map(id, model.SE_clf.parameters()))
+    base_params = filter(lambda p: id(p) not in se + se_clf, model.parameters())
+    optimizer = torch.optim.Adam([{'params': base_params, 'lr': args.lr},
+                                  {'params': model.SElayer.parameters(), 'lr': args.lr * 10},
+                                  {'params': model.SE_clf.parameters(), 'lr': args.lr * 10}], lr=args.lr)
+    warm_up_with_cosine_lr = lambda step: step / args.warmup \
+        if step <= args.warmup \
+        else 0.5 * (math.cos((step - args.warmup) / (args.epochs * total_step - args.warmup) * math.pi) + 1)
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=warm_up_with_cosine_lr)
+
+
+    for epoch in tqdm(range(args.epochs)):
+        model.train()
+        for step, (utt, labels, seq_len) in enumerate(train_data):
+            utt_ = utt.to(device=device)
+            seq_weights = seq_len[0] / torch.tensor(seq_len).to(device=device)
+            atten_mask = get_atten_mask(seq_len, utt_.size(0))
+            atten_mask = atten_mask.to(device=device)
+            std_mask_, weight_unbaised = std_mask(seq_len, len(seq_len), dim=args.featdim*args.head)
+            std_mask_ = std_mask_.to(device=device)
+            weight_unbaised = weight_unbaised.to(device=device)
+            labels = labels.to(device=device)
+            # Forward pass
+            outputs, se_output, se_ = model(utt_, seq_len, seq_weights, std_mask_, weight_unbaised, atten_mask=atten_mask)
+            loss_lid = loss_func_CRE(outputs, labels)
+            loss_se = loss_func_CRE(se_output, labels)
+            loss = 0.2*loss_se + 0.8*loss_lid
+            # Backward and optimize
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            scheduler.step()
+            if step % 200 == 0:
+                print("Epoch [{}/{}], Step [{}/{}] XSA: {:.4f} SE: {:.4f} ".
+                      format(epoch + 1, args.epochs, step + 1, total_step, loss_lid.item(), loss_se.item()))
+
+
+            # print(get_lr(optimizer))
+
+        if epoch >= args.epochs - 5:
+            torch.save(model.state_dict(), '/home/hexin/Desktop/models/' + '{}_epoch_{}.ckpt'.format(args.model, epoch))
+            model.eval()
+            correct = 0
+            total = 0
+            scores = 0
+            with torch.no_grad():
+                for step, (utt, labels, seq_len) in enumerate(valid_data):
+                    utt = utt.to(device=device, dtype=torch.float)
+                    seq_weights = seq_len[0] / torch.tensor(seq_len).to(device=device)
+                    std_mask_, weight_unbaised = std_mask(seq_len, len(seq_len), dim=args.featdim * args.head)
+                    std_mask_ = std_mask_.to(device=device)
+                    weight_unbaised = weight_unbaised.to(device=device)
+                    labels = labels.to(device)
+                    # Forward pass\
+                    outputs, se_output, se_ = model(utt, seq_len, seq_weights, std_mask_, weight_unbaised, atten_mask=None)
+                    predicted = torch.argmax(outputs, -1)
+                    total += labels.size(-1)
+                    correct += (predicted == labels).sum().item()
+                    if step == 0:
+                        scores = outputs
+                    else:
+                        scores = torch.cat((scores, outputs), dim=0)
+            acc = correct / total
+            print('Current Acc.: {:.4f} %'.format(100 * acc))
+            scores = scores.squeeze().cpu().numpy()
+            print(scores.shape)
+            trial_txt = os.path.split(args.train)[0] + '/trial_{}.txt'.format(args.model)
+            score_txt = os.path.split(args.train)[0] + '/score_{}.txt'.format(args.model)
+            scoring.get_trials(valid_txt, args.lang, trial_txt)
+            scoring.get_score(valid_txt, scores, args.lang, score_txt)
+            eer_txt = trial_txt.replace('trial', 'eer')
+            subprocess.call(f"{args.kaldi}/egs/subtools/computeEER.sh "
+                            f"--write-file {eer_txt} {trial_txt} {score_txt}", shell=True)
+            cavg = scoring.compute_cavg(trial_txt, score_txt)
+            print("Cavg:{}".format(cavg))
+
+
+if __name__ == "__main__":
+    main()
