@@ -1,6 +1,4 @@
-import torch
-
-from model_se_xsa import *
+from model import *
 from data_load import *
 import scoring
 import subprocess
@@ -58,6 +56,7 @@ def main():
                         default=0)
     parser.add_argument('--seed', type=int, help='Device name',
                         default=0)
+    parser.add_argument('--kaldi', type=str, help='kaldi root', default='/home/hexin/Desktop/kaldi')
     args = parser.parse_args()
 
     setup_seed(args.seed)
@@ -93,8 +92,13 @@ def main():
 
     loss_func_CRE = nn.CrossEntropyLoss().to(device)
     total_step = len(train_data)
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-
+    # optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    se = list(map(id, model.SElayer.parameters()))
+    se_clf = list(map(id, model.SE_clf.parameters()))
+    base_params = filter(lambda p: id(p) not in se + se_clf, model.parameters())
+    optimizer = torch.optim.Adam([{'params': base_params, 'lr': args.lr},
+                                  {'params': model.SElayer.parameters(), 'lr': args.lr * 10},
+                                  {'params': model.SE_clf.parameters(), 'lr': args.lr * 10}], lr=args.lr)
     warm_up_with_cosine_lr = lambda step: step / args.warmup \
         if step <= args.warmup \
         else 0.5 * (math.cos((step - args.warmup) / (args.epochs * total_step - args.warmup) * math.pi) + 1)
@@ -161,7 +165,7 @@ def main():
             scoring.get_trials(valid_txt, args.lang, trial_txt)
             scoring.get_score(valid_txt, scores, args.lang, score_txt)
             eer_txt = trial_txt.replace('trial', 'eer')
-            subprocess.call(f"/home/hexin/Desktop/kaldi/egs/subtools/computeEER.sh "
+            subprocess.call(f"{args.kaldi}/egs/subtools/computeEER.sh "
                             f"--write-file {eer_txt} {trial_txt} {score_txt}", shell=True)
             cavg = scoring.compute_cavg(trial_txt, score_txt)
             print("Cavg:{}".format(cavg))
