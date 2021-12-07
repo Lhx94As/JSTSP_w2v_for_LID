@@ -71,7 +71,7 @@ def main():
         os.mkdir(save_dir)
 
     if args.step <= 0:
-        print('step: 0')
+        print('The upsampled data will be stored in {}'.format(save_dir))
         audio_list = []
         labels = []
         lredir = args.lredir
@@ -110,6 +110,7 @@ def main():
                     print(audio)
     if args.step <= 1:
         print('Completed upsampling, segmenting long utterances to {} secs'.format(args.seglen))
+        
         audio2lang_txt = save_dir + '/wav2lang.txt'
         with open(audio2lang_txt, 'r') as f:
             lines = f.readlines()
@@ -119,6 +120,7 @@ def main():
         seg_len = args.seglen
         overlap = args.overlap
         save_seg_dir = args.savedir + '/segs/'
+        print('The segmented data will be stored in {}'.format(save_seg_dir))
         if not os.path.exists(save_seg_dir):
             os.mkdir(save_seg_dir)
         with open(audio2lang_seg_txt, 'w') as f:
@@ -151,8 +153,10 @@ def main():
                 except:
                     print('Errors when segmenting')
     if args.step <= 2:
+        save_seg_dir = args.savedir + '/segs/'
         print("Extracting wav2vec features from layer {} of pretrained {}".
               format(args.layer, os.path.split(args.model)[-1].split('.')[0]))
+        print('The features will be stored in {}'.format(save_seg_dir))
         audio2lang_seg_txt = save_dir + '/segment2lang.txt'
         feat2lang_txt = save_dir + '/feat2lang.txt'
         with open(audio2lang_seg_txt, 'r') as f:
