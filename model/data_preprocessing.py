@@ -38,7 +38,7 @@ def make_200ms_feat(mfccs, overlap=10, chunk_len=20):
 def upsampling_lre(audio, save_dir):
     if audio.endswith('.sph'):
         new_name = save_dir + '/' + os.path.split(audio)[-1].replace('.sph', '.wav')
-        subprocess.call(f"sph2pipe {audio} {new_name}", shell=True)
+        subprocess.call(f"sph2pipe -p {audio} {new_name}", shell=True)
         subprocess.call(f"sox {new_name} -r 16000 {new_name}", shell=True)
     elif audio.endswith('.wav') or audio.endswith('.WAV'):
         new_name = save_dir + '/' + os.path.split(audio)[-1].replace('.WAV', '.wav')
@@ -46,7 +46,8 @@ def upsampling_lre(audio, save_dir):
 
 def main():
     parser = argparse.ArgumentParser(description='paras for making data')
-    parser.add_argument('--step', type=int, help='step to control the process. 0 means starting from beginning')
+    parser.add_argument('--step', type=int, help='step to control the process. 0 means starting from beginning',
+                        default=0)
     parser.add_argument('--lredir', type=str, help='e.g.: lre_train/')
     parser.add_argument('--model', type=str, help='pretrained XLSR-53 model dir')
     parser.add_argument('--kaldi', type=str, help='e.g.: /home/user_kk/kaldi/')
@@ -70,24 +71,25 @@ def main():
         os.mkdir(save_dir)
 
     if args.step <= 0:
+        print('step: 0')
         audio_list = []
         labels = []
         lredir = args.lredir
-        if lredir.strip('/').endswith('Training_Data'):
+        if lredir.endswith('Training_Data/'):
             key_file = args.lredir + '/docs/filename_language_key.tab'
             with open(key_file, 'r') as f:
                 lines = f.readlines()
             labels_text = [x.split()[1].strip().replace('-', '') for x in lines]
             audio_list = [args.lredir + '/data/{}/{}'.format(x.split()[1].strip(),x.split()[0]) for x in lines]
             labels = le.transform(labels_text)
-        elif lredir.strip('/').endswith('Development_Data'):
+        elif lredir.endswith('Development_Data/'):
             key_file = args.lredir + '/docs/lre17_dev_segments.key'
             with open(key_file, 'r') as f:
                 lines = f.readlines()
             labels_text = [x.split()[1].strip().replace('-', '') for x in lines[1:]]
             audio_list = [args.lredir + '/data/dev/{}'.format(x.split()[0]) for x in lines[1:]]
             labels = le.transform(labels_text)
-        elif lredir.strip('/').endswith('Eval_Data'):
+        elif lredir.endswith('Eval_Data/'):
             key_file = args.lredir + '/docs/lre17_eval_segments.key'
             with open(key_file, 'r') as f:
                 lines = f.readlines()
