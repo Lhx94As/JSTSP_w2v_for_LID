@@ -44,11 +44,11 @@ def main():
                         default='AE_XSA')
     parser.add_argument('--train', type=str, help='training data, in .txt')
     parser.add_argument('--batch', type=int, help='batch size',
-                        default=64)
+                        default=128)
     parser.add_argument('--warmup', type=int, help='num of epochs',
-                        default=11000)
+                        default=2766)
     parser.add_argument('--epochs', type=int, help='num of epochs',
-                        default=20)
+                        default=10)
     parser.add_argument('--lang', type=int, help='num of language classes',
                         default=10)
     parser.add_argument('--lr', type=float, help='initial learning rate',
