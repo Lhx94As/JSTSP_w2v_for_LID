@@ -37,10 +37,10 @@ def main():
     parser.add_argument('--featdim', type=int, help='dim of input of attention blocks', default=64)
     parser.add_argument('--head', type=int, help='num of attention heads', default=8)
     parser.add_argument('--model', type=str, help='model name',  default='AE_XSA')
-    parser.add_argument('--kaldi', type=str, help='kaldi root')
+    parser.add_argument('--kaldi', type=str, help='kaldi root', default='/home/hexin/Desktop/kaldi')
     parser.add_argument('--train', type=str, help='training data, in .txt')
     parser.add_argument('--batch', type=int, help='batch size', default=128)
-    parser.add_argument('--warmup', type=int, help='num of epochs', default=11000)
+    parser.add_argument('--warmup', type=int, help='num of epochs')
     parser.add_argument('--epochs', type=int, help='num of epochs', default=10)
     parser.add_argument('--lang', type=int, help='num of language classes', default=10)
     parser.add_argument('--lr', type=float, help='initial learning rate', default=0.0001)
@@ -83,10 +83,14 @@ def main():
     loss_func_CRE = nn.CrossEntropyLoss().to(device)
     total_step = len(train_data)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-
-    warm_up_with_cosine_lr = lambda step: step / args.warmup \
-        if step <= args.warmup \
-        else 0.5 * (math.cos((step - args.warmup) / (args.epochs * total_step - args.warmup) * math.pi) + 1)
+    
+    if not args.warmup:
+        warmup = total_step*3
+    else:
+        warmup = args.warnup
+    warm_up_with_cosine_lr = lambda step: step / warmup \
+        if step <= warmup \
+        else 0.5 * (math.cos((step - warmup) / (args.epochs * total_step - warmup) * math.pi) + 1)
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=warm_up_with_cosine_lr)
 
 
@@ -144,8 +148,8 @@ def main():
             print('Current Acc.: {:.4f} %'.format(100 * acc))
             scores = scores.squeeze().cpu().numpy()
             print(scores.shape)
-            trial_txt = os.path.split(args.train)[0] + '/trial.txt'
-            score_txt = os.path.split(args.train)[0] + '/score.txt'
+            trial_txt = os.path.split(args.train)[0] + '/trial_{}.txt'.format(args.model)
+            score_txt = os.path.split(args.train)[0] + '/score_{}.txt'.format(args.model)
             scoring.get_trials(valid_txt, args.lang, trial_txt)
             scoring.get_score(valid_txt, scores, args.lang, score_txt)
             eer_txt = trial_txt.replace('trial', 'eer')
