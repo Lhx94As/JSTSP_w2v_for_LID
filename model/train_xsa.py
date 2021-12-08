@@ -87,7 +87,7 @@ def main():
     if not args.warmup:
         warmup = total_step*3
     else:
-        warmup = args.warnup
+        warmup = args.warmup
     warm_up_with_cosine_lr = lambda step: step / warmup \
         if step <= warmup \
         else 0.5 * (math.cos((step - warmup) / (args.epochs * total_step - warmup) * math.pi) + 1)
