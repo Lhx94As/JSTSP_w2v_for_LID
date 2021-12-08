@@ -35,22 +35,25 @@ def make_200ms_feat(mfccs, overlap=10, chunk_len=20):
         new_feat = np.vstack((new_feat, feat_temp))
     return new_feat
 
-def upsampling_lre(audio, save_wav, save_16k):
+def sph_flac_to_wav(audio, save_wav):
     if audio.endswith('.sph'):
         new_name = save_wav+ '/' + os.path.split(audio)[-1].replace('.sph', '.wav')
         subprocess.call(f"sph2pipe -p {audio} {new_name}", shell=True)
-        new_name_16k = new_name.replace(save_wav, save_16k)
-        subprocess.call(f"sox {new_name} -r 16000 {new_name_16k}", shell=True)
-        os.remove(new_name)
-    elif audio.endswith('.wav') or audio.endswith('.WAV'):
-        new_name = save_16k + '/' + os.path.split(audio)[-1].replace('.WAV', '.wav')
-        subprocess.call(f"sox {audio} -r 16000 {new_name}", shell=True)
+    elif audio.endswith('.flac'):
+        new_name = save_wav + '/' + os.path.split(audio)[-1].replace('.flac', '.wav')
+        subprocess.call(f"sox {audio} {new_name}", shell=True)
+
+def upsample_wav(audio, savedir):
+    root_ = os.path.split(audio)[0]
+    new_name_16k = audio.replace(root_, savedir)
+    subprocess.call(f"sox {audio} -r 16000 {new_name_16k}", shell=True)
 
 def main():
     parser = argparse.ArgumentParser(description='paras for making data')
     parser.add_argument('--step', type=int, help='step to control the process. 0 means starting from beginning',
                         default=0)
     parser.add_argument('--lredir', type=str, help='e.g.: lre_train/')
+    parser.add_argument('--segment', type=str, help='segment file, in txt')
     parser.add_argument('--model', type=str, help='pretrained XLSR-53 model dir')
     parser.add_argument('--kaldi', type=str, help='e.g.: /home/user_kk/kaldi/')
     parser.add_argument('--device',type = int, help='cuda id, default 0', default=0)
@@ -73,7 +76,7 @@ def main():
         os.mkdir(save_dir)
 
     if args.step <= 0:
-        print('step: 0')
+        print('step 0: tranform sph and flac to wav files')
         audio_list = []
         labels = []
         lredir = args.lredir
@@ -101,75 +104,65 @@ def main():
 
 
         audio2lang_txt = save_dir + '/wav2lang.txt'
-        temp_dir = save_dir + '/temp/'
-        if not os.path.exists(temp_dir):
-            os.mkdir(temp_dir)
+        audio_dict = {"seg": 9999}
         with open(audio2lang_txt, 'w') as f:
             for i in tqdm(range(len(audio_list))):
                 audio = audio_list[i]
                 try:
-                    upsampling_lre(audio, temp_dir, save_dir)
-                    save_name = save_dir+'/'+os.path.split(audio)[-1].replace('.WAV','.wav').replace('.sph','.wav')
+                    # sph_flac_to_wav(audio, save_dir)
+                    save_name = save_dir+'/'+os.path.split(audio)[-1].replace('.flac','.wav').replace('.sph','.wav')
+                    audio_dict[save_name] = labels[i]
                     f.write("{} {}\n".format(save_name, labels[i]))
                 except:
-                    print(audio)
-        os.rmdir(temp_dir)
-    if args.step <= 1:
-        print('Completed upsampling, segmenting long utterances to {} secs'.format(args.seglen))
-        audio2lang_txt = save_dir + '/wav2lang.txt'
-        with open(audio2lang_txt, 'r') as f:
-            lines = f.readlines()
-        audio_list = [x.split()[0] for x in lines]
-        labels_list = [x.split()[1].strip() for x in lines]
-        audio2lang_seg_txt = save_dir + '/segment2lang.txt'
-        seg_len = args.seglen
-        overlap = args.overlap
+                    print("Fail to transform {} to wav".format(audio))
+
+        print("Now segment the 8KHz audio using VAD")
+        segment_file = args.segment
         save_seg_dir = args.savedir + '/segs/'
         if not os.path.exists(save_seg_dir):
             os.mkdir(save_seg_dir)
+        with open(segment_file, 'r') as f:
+            lines = f.readlines()
+        new_name_list = [save_seg_dir+'/'+x.split()[0].strip()+'.wav' for x in lines]
+        ori_name_list = [save_dir+'/'+x.split()[1].strip()+'.wav' for x in lines]
+        start_list = [float(x.split()[2].strip()) for x in lines]
+        end_list = [float(x.split()[3].strip()) for x in lines]
+        audio2lang_seg_txt = save_dir + '/segment2lang.txt'
         with open(audio2lang_seg_txt, 'w') as f:
-            for i in tqdm(range(len(audio_list))):
-                audio = audio_list[i]
-                main_name = os.path.split(audio)[-1]
-                label = labels_list[i]
+            for i in tqdm(range(len(ori_name_list))):
+                audio = ori_name_list[i]
+                label = audio_dict[audio]
                 try:
-                    audio_length = librosa.get_duration(filename=audio)
                     data_ = AudioSegment.from_file(audio, "wav")
-                    num_segs = (audio_length - overlap) // (seg_len - overlap)
-                    remainder = (audio_length - overlap) % (seg_len - overlap)
-                    if num_segs >= 1:
-                        start = 0
-                        for ii in range(int(num_segs)):
-                            end = start + seg_len
-                            start_ = start * 1000
-                            end_ = end * 1000
-                            data_seg = data_[start_:end_]
-                            save_name = save_seg_dir + main_name.replace('.wav', '_{}.wav'.format(ii))
-                            data_seg.export(save_name, format='wav')
-                            start = end - overlap
-                            f.write("{} {}\n".format(save_name, label))
-                        if remainder >= 3: # if remainder longer than 3s, keep it, otherwise throw away
-                            start_ = start * 1000
-                            data_seg = data_[start_:]
-                            save_name = save_seg_dir + main_name.replace('.wav', '_{}.wav'.format(num_segs))
-                            data_seg.export(save_name, format='wav')
-                            f.write("{} {}\n".format(save_name, label))
+                    start_ = start_list[i] * 1000
+                    end_ = end_list[i] * 1000
+                    data_seg = data_[start_:end_]
+                    save_name = new_name_list[i]
+                    data_seg.export(save_name, format='wav')
+                    f.write("{} {}\n".format(save_name, label))
                 except:
                     print('Errors when segmenting')
-    if args.step <= 2:
+
+
+    if args.step <= 1:
         print("Extracting wav2vec features from layer {} of pretrained {}".
               format(args.layer, os.path.split(args.model)[-1].split('.')[0]))
         audio2lang_seg_txt = save_dir + '/segment2lang.txt'
-        feat2lang_txt = save_dir + '/feat2lang.txt'
         with open(audio2lang_seg_txt, 'r') as f:
-            lines = f.readlines()
+                lines = f.readlines()
         audio_list = [x.split()[0] for x in lines]
         labels_list = [x.split()[1].strip() for x in lines]
+        feat2lang_txt = save_dir + '/feat2lang.txt'
+        temp = save_dir + '/temp/'
+        if not os.path.exists(temp):
+            os.mkdir(temp)
         with open(feat2lang_txt, 'w') as f:
             for i in tqdm(range(len(audio_list))):
                 audio = audio_list[i]
                 label = labels_list[i]
-                data, sr = librosa.load(audio, sr=None)
+                temp_audio = audio.replace(os.path.split(audio)[0], temp)
+                upsample_wav(audio, temp)
+                data, sr = librosa.load(temp_audio, sr=None)
                 data_ = torch.tensor(data).to(device=device, dtype=torch.float).unsqueeze(0)
                 try: # To skip some too long or too short utterances
                     features = model(data_)
@@ -181,6 +174,8 @@ def main():
                     f.write("{} {} {}\n".format(save_name, label, features.shape[0]))
                 except:
                     print("Len:{} {} is not successful, skip this one".format(len(data) / sr, audio))
+                os.remove(temp_audio)
+
 
 if __name__ == "__main__":
     main()
