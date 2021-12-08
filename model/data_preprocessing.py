@@ -35,13 +35,15 @@ def make_200ms_feat(mfccs, overlap=10, chunk_len=20):
         new_feat = np.vstack((new_feat, feat_temp))
     return new_feat
 
-def upsampling_lre(audio, save_dir):
+def upsampling_lre(audio, save_wav, save_16k):
     if audio.endswith('.sph'):
-        new_name = save_dir + '/' + os.path.split(audio)[-1].replace('.sph', '.wav')
+        new_name = save_wav+ '/' + os.path.split(audio)[-1].replace('.sph', '.wav')
         subprocess.call(f"sph2pipe -p {audio} {new_name}", shell=True)
-        subprocess.call(f"sox {new_name} -r 16000 {new_name}", shell=True)
+        new_name_16k = new_name.replace(save_wav, save_16k)
+        subprocess.call(f"sox {new_name} -r 16000 {new_name_16k}", shell=True)
+        os.remove(new_name)
     elif audio.endswith('.wav') or audio.endswith('.WAV'):
-        new_name = save_dir + '/' + os.path.split(audio)[-1].replace('.WAV', '.wav')
+        new_name = save_16k + '/' + os.path.split(audio)[-1].replace('.WAV', '.wav')
         subprocess.call(f"sox {audio} -r 16000 {new_name}", shell=True)
 
 def main():
@@ -71,7 +73,7 @@ def main():
         os.mkdir(save_dir)
 
     if args.step <= 0:
-        print('The upsampled data will be stored in {}'.format(save_dir))
+        print('step: 0')
         audio_list = []
         labels = []
         lredir = args.lredir
@@ -99,18 +101,21 @@ def main():
 
 
         audio2lang_txt = save_dir + '/wav2lang.txt'
+        temp_dir = save_dir + '/temp/'
+        if not os.path.exists(temp_dir):
+            os.mkdir(temp_dir)
         with open(audio2lang_txt, 'w') as f:
             for i in tqdm(range(len(audio_list))):
                 audio = audio_list[i]
                 try:
-                    upsampling_lre(audio, save_dir)
-                    save_name = save_dir+'/'+os.path.split(audio)[-1].replace('.WAV','.wav').replace('.sph','wav')
+                    upsampling_lre(audio, temp_dir, save_dir)
+                    save_name = save_dir+'/'+os.path.split(audio)[-1].replace('.WAV','.wav').replace('.sph','.wav')
                     f.write("{} {}\n".format(save_name, labels[i]))
                 except:
                     print(audio)
+        os.rmdir(temp_dir)
     if args.step <= 1:
         print('Completed upsampling, segmenting long utterances to {} secs'.format(args.seglen))
-        
         audio2lang_txt = save_dir + '/wav2lang.txt'
         with open(audio2lang_txt, 'r') as f:
             lines = f.readlines()
@@ -120,7 +125,6 @@ def main():
         seg_len = args.seglen
         overlap = args.overlap
         save_seg_dir = args.savedir + '/segs/'
-        print('The segmented data will be stored in {}'.format(save_seg_dir))
         if not os.path.exists(save_seg_dir):
             os.mkdir(save_seg_dir)
         with open(audio2lang_seg_txt, 'w') as f:
@@ -135,7 +139,7 @@ def main():
                     remainder = (audio_length - overlap) % (seg_len - overlap)
                     if num_segs >= 1:
                         start = 0
-                        for ii in range(num_segs):
+                        for ii in range(int(num_segs)):
                             end = start + seg_len
                             start_ = start * 1000
                             end_ = end * 1000
@@ -153,10 +157,8 @@ def main():
                 except:
                     print('Errors when segmenting')
     if args.step <= 2:
-        save_seg_dir = args.savedir + '/segs/'
         print("Extracting wav2vec features from layer {} of pretrained {}".
               format(args.layer, os.path.split(args.model)[-1].split('.')[0]))
-        print('The features will be stored in {}'.format(save_seg_dir))
         audio2lang_seg_txt = save_dir + '/segment2lang.txt'
         feat2lang_txt = save_dir + '/feat2lang.txt'
         with open(audio2lang_seg_txt, 'r') as f:
