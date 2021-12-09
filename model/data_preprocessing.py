@@ -109,7 +109,7 @@ def main():
             for i in tqdm(range(len(audio_list))):
                 audio = audio_list[i]
                 try:
-                    # sph_flac_to_wav(audio, save_dir)
+                    sph_flac_to_wav(audio, save_dir)
                     save_name = save_dir+'/'+os.path.split(audio)[-1].replace('.flac','.wav').replace('.sph','.wav')
                     audio_dict[save_name] = labels[i]
                     f.write("{} {}\n".format(save_name, labels[i]))
