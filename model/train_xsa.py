@@ -39,6 +39,8 @@ def main():
     parser.add_argument('--model', type=str, help='model name',  default='AE_XSA')
     parser.add_argument('--kaldi', type=str, help='kaldi root', default='/home/hexin/Desktop/kaldi')
     parser.add_argument('--train', type=str, help='training data, in .txt')
+    parser.add_argument('--valid', type=str, 
+                        help='test data, in .txt, if exists the model output EER etc in last 4 epochs')
     parser.add_argument('--batch', type=int, help='batch size', default=128)
     parser.add_argument('--warmup', type=int, help='num of epochs')
     parser.add_argument('--epochs', type=int, help='num of epochs', default=10)
@@ -66,24 +68,25 @@ def main():
 
     train_txt = args.train
     train_set = RawFeatures(train_txt)
-    valid_txt = '/home/hexin/Desktop/hexin/dataset/OLR2020/AP19-OLR_data/wav2vec2lang_16_test.txt'
-    valid_set = RawFeatures(valid_txt)
     train_data = DataLoader(dataset=train_set,
                             batch_size=args.batch,
                             pin_memory=True,
                             num_workers=8,
                             shuffle=True,
                             collate_fn=collate_fn_atten)
-    valid_data= DataLoader(dataset=valid_set,
-                           batch_size=1,
-                           pin_memory=True,
-                           shuffle=False,
-                           collate_fn=collate_fn_atten)
+    if args.valid:
+        valid_txt = args.valid
+        valid_set = RawFeatures(valid_txt)
+        valid_data= DataLoader(dataset=valid_set,
+                               batch_size=1,
+                               pin_memory=True,
+                               shuffle=False,
+                               collate_fn=collate_fn_atten)
 
     loss_func_CRE = nn.CrossEntropyLoss().to(device)
     total_step = len(train_data)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    
+
     if not args.warmup:
         warmup = total_step*3
     else:
@@ -99,15 +102,17 @@ def main():
         model.train()
         for step, (utt, labels, seq_len) in enumerate(train_data):
             utt_ = utt.to(device=device)
-            seq_weights = seq_len[0] / torch.tensor(seq_len).to(device=device)
             atten_mask = get_atten_mask(seq_len, utt_.size(0))
             atten_mask = atten_mask.to(device=device)
+            mean_mask_, weight_mean = mean_mask(seq_len, len(seq_len), dim=args.featdim * args.head)
             std_mask_, weight_unbaised = std_mask(seq_len, len(seq_len), dim=args.featdim * args.head)
+            mean_mask_ = mean_mask_.to(device)
+            weight_mean = weight_mean.to(device)
             std_mask_ = std_mask_.to(device=device)
             weight_unbaised = weight_unbaised.to(device=device)
             labels = labels.to(device=device)
             # Forward pass
-            outputs = model(utt_, seq_len, seq_weights, std_mask_, weight_unbaised, atten_mask=atten_mask)
+            outputs = model(utt_, seq_len, mean_mask_, weight_mean, std_mask_, weight_unbaised, atten_mask=atten_mask)
             loss_lid = loss_func_CRE(outputs, labels)
             # Backward and optimize
             optimizer.zero_grad()
@@ -121,42 +126,44 @@ def main():
 
             # print(get_lr(optimizer))
 
-        if epoch >= args.epochs - 10:
+        if epoch >= args.epochs - 4:
             torch.save(model.state_dict(), '{}_epoch_{}.ckpt'.format(args.model, epoch))
-            model.eval()
-            correct = 0
-            total = 0
-            scores = 0
-            with torch.no_grad():
-                for step, (utt, labels, seq_len) in enumerate(valid_data):
-                    utt = utt.to(device=device, dtype=torch.float)
-                    seq_weights = seq_len[0] / torch.tensor(seq_len).to(device=device)
-                    std_mask_, weight_unbaised = std_mask(seq_len, len(seq_len), dim=args.featdim * args.head)
-                    std_mask_ = std_mask_.to(device=device)
-                    weight_unbaised = weight_unbaised.to(device=device)
-                    labels = labels.to(device)
-                    # Forward pass\
-                    outputs = model(utt, seq_len, seq_weights, std_mask_, weight_unbaised, atten_mask=None)
-                    predicted = torch.argmax(outputs, -1)
-                    total += labels.size(-1)
-                    correct += (predicted == labels).sum().item()
-                    if step == 0:
-                        scores = outputs
-                    else:
-                        scores = torch.cat((scores, outputs), dim=0)
-            acc = correct / total
-            print('Current Acc.: {:.4f} %'.format(100 * acc))
-            scores = scores.squeeze().cpu().numpy()
-            print(scores.shape)
-            trial_txt = os.path.split(args.train)[0] + '/trial_{}.txt'.format(args.model)
-            score_txt = os.path.split(args.train)[0] + '/score_{}.txt'.format(args.model)
-            scoring.get_trials(valid_txt, args.lang, trial_txt)
-            scoring.get_score(valid_txt, scores, args.lang, score_txt)
-            eer_txt = trial_txt.replace('trial', 'eer')
-            subprocess.call(f"{args.kaldi}/egs/subtools/computeEER.sh "
-                            f"--write-file {eer_txt} {trial_txt} {score_txt}", shell=True)
-            cavg = scoring.compute_cavg(trial_txt, score_txt)
-            print("Cavg:{}".format(cavg))
+            if args.valid:
+                model.eval()
+                correct = 0
+                total = 0
+                scores = 0
+                with torch.no_grad():
+                    for step, (utt, labels, seq_len) in enumerate(valid_data):
+                        utt = utt.to(device=device, dtype=torch.float)
+                        seq_weights = seq_len[0] / torch.tensor(seq_len).to(device=device)
+                        std_mask_, weight_unbaised = std_mask(seq_len, len(seq_len), dim=args.featdim * args.head)
+                        std_mask_ = std_mask_.to(device=device)
+                        weight_unbaised = weight_unbaised.to(device=device)
+                        labels = labels.to(device)
+                        # Forward pass\
+                        outputs = model(utt, seq_len, mean_mask_=None, weight_mean=seq_weights,
+                                        std_mask_=std_mask_, weight_unbaised=weight_unbaised, atten_mask=None)
+                        predicted = torch.argmax(outputs, -1)
+                        total += labels.size(-1)
+                        correct += (predicted == labels).sum().item()
+                        if step == 0:
+                            scores = outputs
+                        else:
+                            scores = torch.cat((scores, outputs), dim=0)
+                acc = correct / total
+                print('Current Acc.: {:.4f} %'.format(100 * acc))
+                scores = scores.squeeze().cpu().numpy()
+                print(scores.shape)
+                trial_txt = os.path.split(args.train)[0] + '/trial_{}.txt'.format(args.model)
+                score_txt = os.path.split(args.train)[0] + '/score_{}.txt'.format(args.model)
+                scoring.get_trials(valid_txt, args.lang, trial_txt)
+                scoring.get_score(valid_txt, scores, args.lang, score_txt)
+                eer_txt = trial_txt.replace('trial', 'eer')
+                subprocess.call(f"{args.kaldi}/egs/subtools/computeEER.sh "
+                                f"--write-file {eer_txt} {trial_txt} {score_txt}", shell=True)
+                cavg = scoring.compute_cavg(trial_txt, score_txt)
+                print("Cavg:{}".format(cavg))
 
 
 if __name__ == "__main__":
