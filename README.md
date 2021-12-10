@@ -9,5 +9,5 @@ data_preprocessing.py, to run multiple jobs, set --filerange, there are totally 
 Then run combine_fea2lang.py if we have run multiple jobs. The output is /home/user/your_save_dir/feat2lang_all.txt, each line feat:  
 >python combine_feat2lang.py --datadir /home/user/your_save_dir/
 
-train_xsa.py:  
+train_xsa.py, --train and --valid can be feat2lang_all.txt of different datasets in the last step, --model is just for saving ckpt file, kaldi is your kaldi path, epochs can be 20 emperically, --lang is 14 since LRE17 consists of 14 languages, --batch 128 because we have the best results using this batch size for OLR data:  
 >python train_xsa.py --model model_Tom --kaldi /home/user/kaldi/ ---train /home/wav2vec_features_train.txt --valid /home/wav2vec_features_test.txt --batch 128 --epochs 20 --lang 14 --device 0
