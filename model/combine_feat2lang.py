@@ -6,8 +6,6 @@ def main():
     parser = argparse.ArgumentParser(description='paras for making data')
     parser.add_argument('--datadir', type=str,
                         help='where you save feat2lang files, same as the savedir in w2v_feat_extraction.py')
-    parser.add_argument("--remove", type=bool, help='If True, remove the original features after making 20-frame feat',
-                        default=True)
     args = parser.parse_args()
     data_dir = args.datadir
     txt_file = glob.glob(data_dir+'/*txt')
