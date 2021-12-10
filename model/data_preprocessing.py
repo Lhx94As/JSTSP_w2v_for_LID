@@ -61,12 +61,13 @@ def main():
     parser.add_argument('--seglen', type=int, help='segmentlength', default=30)
     parser.add_argument('--overlap', type=int, help='overlap length', default=1)
     parser.add_argument('--savedir', type=str, help='dir to save wav2vec feats', default=None)
+    parser.add_argument('--filerange', type=str, help="file range, total 625416, e.g.:0_100000")
     args = parser.parse_args()
     os.environ["PATH"] += os.pathsep + "{}/tools/sph2pipe_v2.5/".format(args.kaldi)
 
-    device = torch.device('cuda:{}'.format(args.device) if torch.cuda.is_available() else 'cpu')
-    model = hubconf.wav2vec2_local(ckpt=args.model)
-    model.to(device)
+    # device = torch.device('cuda:{}'.format(args.device) if torch.cuda.is_available() else 'cpu')
+    # model = hubconf.wav2vec2_local(ckpt=args.model)
+    # model.to(device)
     dir_list = ['araacm', 'araapc', 'araary', 'araarz', 'enggbr', 'engusg', 'porbrz', 'qslpol',
                 'qslrus', 'spacar', 'spaeur', 'spalac', 'zhocmn', 'zhonan']
     le = LabelEncoder()
@@ -75,7 +76,7 @@ def main():
     if not os.path.exists(save_dir):
         os.mkdir(save_dir)
 
-    if args.step <= 0:
+    if args.step == 0:
         print('step 0: tranform sph and flac to wav files')
         audio_list = []
         labels = []
@@ -115,44 +116,59 @@ def main():
                     f.write("{} {}\n".format(save_name, labels[i]))
                 except:
                     print("Fail to transform {} to wav".format(audio))
-
+    if args.step == 1:
+        audio_dict = {"seg": 9999}
+        audio2lang_txt = save_dir + '/wav2lang.txt'
+        with open(audio2lang_txt, 'r') as f:
+            lines = f.readlines()
+        names = [x.split()[0].strip() for x in lines]
+        labels = [x.split()[1].strip() for x in lines]
+        for i in range(len(names)):
+            audio_dict[names[i]] = labels[i]
         print("Now segment the 8KHz audio using VAD")
         segment_file = args.segment
-        save_seg_dir = args.savedir + '/segs/'
+        start_file = int(args.filerange.split('_')[0])
+        end_file = int(args.filerange.split('_')[1])
+        save_seg_dir_all = args.savedir + '/segs/'
+        save_seg_dir = args.savedir + '/segs/segs_{}_{}/'.format(start_file, end_file)
+        if not os.path.exists(save_seg_dir_all):
+            os.mkdir(save_seg_dir_all)
         if not os.path.exists(save_seg_dir):
             os.mkdir(save_seg_dir)
         with open(segment_file, 'r') as f:
             lines = f.readlines()
-        new_name_list = [save_seg_dir+'/'+x.split()[0].strip()+'.wav' for x in lines]
-        ori_name_list = [save_dir+'/'+x.split()[1].strip()+'.wav' for x in lines]
-        start_list = [float(x.split()[2].strip()) for x in lines]
-        end_list = [float(x.split()[3].strip()) for x in lines]
-        audio2lang_seg_txt = save_dir + '/segment2lang.txt'
+        new_name_list = [save_seg_dir+'/'+x.split()[0].strip()+'.wav' for x in lines[start_file:end_file]]
+        ori_name_list = [save_dir+'/'+x.split()[1].strip()+'.wav' for x in lines[start_file:end_file]]
+        start_list = [float(x.split()[2].strip()) for x in lines[start_file:end_file]]
+        end_list = [float(x.split()[3].strip()) for x in lines[start_file:end_file]]
+        audio2lang_seg_txt = save_dir + '/segs/segment2lang_{}_{}.txt'.format(start_file, end_file)
         with open(audio2lang_seg_txt, 'w') as f:
             for i in tqdm(range(len(ori_name_list))):
                 audio = ori_name_list[i]
                 label = audio_dict[audio]
                 try:
-                    data_ = AudioSegment.from_file(audio, "wav")
+                    data_ = AudioSegment.from_file(audio)
                     start_ = start_list[i] * 1000
                     end_ = end_list[i] * 1000
                     data_seg = data_[start_:end_]
                     save_name = new_name_list[i]
-                    data_seg.export(save_name, format='wav')
+                    data_seg.export(save_name)
                     f.write("{} {}\n".format(save_name, label))
                 except:
                     print('Errors when segmenting')
 
 
-    if args.step <= 1:
+    if args.step <= 2:
         print("Extracting wav2vec features from layer {} of pretrained {}".
               format(args.layer, os.path.split(args.model)[-1].split('.')[0]))
-        audio2lang_seg_txt = save_dir + '/segment2lang.txt'
+        start_file = int(args.filerange.split('_')[0])
+        end_file = int(args.filerange.split('_')[1])
+        audio2lang_seg_txt = save_dir + '/segs/segment2lang_{}_{}.txt'.format(start_file, end_file)
         with open(audio2lang_seg_txt, 'r') as f:
                 lines = f.readlines()
         audio_list = [x.split()[0] for x in lines]
         labels_list = [x.split()[1].strip() for x in lines]
-        feat2lang_txt = save_dir + '/feat2lang.txt'
+        feat2lang_txt = save_dir + '/feat2lang_{}_{}.txt'.format(start_file, end_file)
         temp = save_dir + '/temp/'
         if not os.path.exists(temp):
             os.mkdir(temp)
