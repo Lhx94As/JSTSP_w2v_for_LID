@@ -3,7 +3,7 @@ Before running the training scripts, pls download asv-subtools and move the fold
 Pls also download s3prl and run the data_preprocessing.py in s3prl.
 
 E.g to run these files  
-data_preprocessing.py, to run multiple jobs, set --filerange, there are totally 625416 segments, so the range can be: 0_10000 namely (1~10000), or 550000_-1 (550001~625416):  
+data_preprocessing.py, to run multiple jobs, set --filerange, there are totally 625416 segments, so the range can be: 0_10000 namely (1-10000), or 550000_-1 (550001-625416):  
 >python data_prepocessing.py --step 0 --lredir /home/user/LDC_LRE2017_Training_Data/ --savedir /home/user/your_save_dir/ --segment /home/user/segment --model /home/xlsr.pt --kaldi /home/user/kaldi/ --layer 16 --seglen 30 --overlap 1 --filerange 0_10000 --device 0
 
 Then run combine_fea2lang.py if we have run multiple jobs. The output is /home/user/your_save_dir/feat2lang_all.txt, each line feat:  
