@@ -38,7 +38,7 @@ def make_200ms_feat(mfccs, overlap=10, chunk_len=20):
 def sph_flac_to_wav(audio, save_wav):
     if audio.endswith('.sph'):
         new_name = save_wav+ '/' + os.path.split(audio)[-1].replace('.sph', '.wav')
-        subprocess.call(f"sph2pipe -p {audio} {new_name}", shell=True)
+        subprocess.call(f"sph2pipe -f wav -p {audio} {new_name}", shell=True)
     elif audio.endswith('.flac'):
         new_name = save_wav + '/' + os.path.split(audio)[-1].replace('.flac', '.wav')
         subprocess.call(f"sox {audio} {new_name}", shell=True)
