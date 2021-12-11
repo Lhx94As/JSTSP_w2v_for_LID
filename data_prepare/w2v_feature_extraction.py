@@ -147,12 +147,12 @@ def main():
                 audio = ori_name_list[i]
                 label = audio_dict[audio]
                 try:
-                    data_ = AudioSegment.from_file(audio)
+                    data_ = AudioSegment.from_file(audio, "wav")
                     start_ = start_list[i] * 1000
                     end_ = end_list[i] * 1000
                     data_seg = data_[start_:end_]
                     save_name = new_name_list[i]
-                    data_seg.export(save_name)
+                    data_seg.export(save_name, format="wav")
                     f.write("{} {}\n".format(save_name, label))
                 except:
                     print('Errors when segmenting')
