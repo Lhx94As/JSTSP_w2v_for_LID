@@ -1,0 +1,52 @@
+{
+  "model_name": "xvector_self_attention",
+  "data_preprocess": {
+    "wavscp_train": "/data_train/wav.scp",
+    "utt2lang_train": "/data_train/utt2lang",
+    "wavscp_valid": "none",
+    "utt2lang_valid": "none",
+    "wavscp_test": "/data_test/wav.scp",
+    "utt2lang_test": "/data_test/utt2lang",
+    "_comment": "kaldi format wav.scp and utt2lang"
+  },
+  "wav2vec_info":{
+    "model_path": "/model.pt",
+    "layer": 16,
+    "m_size": "large",
+    "_comment": "FOr language recognition, XLSR-53 is recommended as the feature extractor"
+  },
+  "Input": {
+    "userroot": "/home/hexin/",
+    "train": "Desktop/hexin/dataset/LRE/wav2vec_train.txt",
+    "valid": "none",
+    "test":  "Desktop/hexin/dataset/LRE/wav2vec_test.txt",
+    "log": "Desktop/hexin/dataset/LRE/log/",
+    "_comment": "Input your data dir here, each line: data_file_path lable_index segment_len"
+  },
+  "model_config": {
+    "model": "xsa",
+    "feat_dim": 1024,
+    "reduc_dim": 256,
+    "d_k": 64,
+    "d_ff": 2048,
+    "n_heads": 8,
+    "n_language": 14,
+    "_comment": "Model configurations, do not change unless you need to modify the model"
+  },
+  "optim_config": {
+    "learning_rate": 0.0001,
+    "epochs": 20,
+    "batch": 128,
+    "optimizer": "Adam",
+    "scheduler": "warmup_cosine",
+    "num_work": 4,
+    "device": 0,
+    "DDP": "False",
+    "warmup_step": -1,
+    "valid_epochs": 3,
+    "seed": -1,
+    "_comment": "warmup_step = -1 denotes default value, num_work is better to be your_cpu_cores/4"
+  },
+  "kaldi": "/your/kaldi/root/"
+
+}
