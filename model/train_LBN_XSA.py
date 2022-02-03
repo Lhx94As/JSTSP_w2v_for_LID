@@ -146,9 +146,9 @@ def main():
             if step % 200 == 0:
                 print("Epoch [{}/{}], Step [{}/{}] Loss: {:.4f} ".
                       format(epoch + 1, total_epochs, step + 1, total_step, loss_lid.item()))
-
-
-            # print(get_lr(optimizer))
+        state = {'model':model.state_dict(),'optimizer':optimizer.state_dict(), 'epoch':epoch}
+        torch.save(state,'{}_epoch_{}.pt'.format(model_name, epoch))
+        
         if epoch >= total_epochs - valid_epochs -1:
             if valid_txt is not None:
                 validation(valid_txt, model, model_name, device, kaldi=kaldi_root, log_dir=log_dir,
