@@ -1,4 +1,5 @@
 # JSTSP
+[Efficient Self-supervised Learning Representations for Spoken Language Identification](https://ieeexplore.ieee.org/document/9866521)
 Before running the training scripts, 
 1. Download asv-subtools and move the folder "subtool" to your kaldi/esg/  
 2. Download s3prl and run the pre_processing.py in s3prl to extract the features.
